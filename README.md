@@ -1,8 +1,9 @@
 # Integrated Resource Planning (`irp`)
 
+[![Unit test CI](https://github.com/Emotive-Academy/irp/actions/workflows/test.yml/badge.svg)](https://github.com/Emotive-Academy/irp/actions/workflows/test.yml)
+[![Docker Image CI](https://github.com/Emotive-Academy/irp/actions/workflows/docker.yml/badge.svg)](https://github.com/Emotive-Academy/irp/actions/workflows/docker.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Status: Concept & Architecture](https://img.shields.io/badge/status-in%20active%20design-orange.svg)](#)
 
 > **`irp`** is an open-source, modular capacity expansion and techno-economic optimization framework designed for modern electricity grid planning.
 
@@ -10,6 +11,7 @@
 
 ## Table of Contents
 
+- [Installation & Quickstart](#installation--quickstart)
 1. [Executive Summary: What is an IRP?](#1-executive-summary-what-is-an-irp)
    - [The Core Philosophy: Level Playing Field](#the-core-philosophy-level-playing-field)
    - [Why IRP is Critical in the Modern Era](#why-irp-is-critical-in-the-modern-era)
@@ -51,6 +53,99 @@
    - [Development Roadmap](#development-roadmap)
 8. [Glossary of Key Terms & Acronyms](#8-glossary-of-key-terms--acronyms)
 9. [Key References & Further Reading](#9-key-references--further-reading)
+
+---
+
+## Installation & Quickstart
+
+### Installation
+
+#### Via `pip` (Local & Development)
+
+```bash
+# Clone the repository
+git clone https://github.com/Emotive-Academy/irp.git
+cd irp
+
+# Install in editable mode with dependencies
+pip install -e .
+```
+
+#### Via Docker
+
+```bash
+# Pull the latest automated build from GitHub Container Registry
+docker pull ghcr.io/emotive-academy/irp:latest
+
+# Run the test suite inside the container
+docker run --rm ghcr.io/emotive-academy/irp:latest python -m tests
+```
+
+### Running Tests and Linting
+
+The repository includes a comprehensive unit and integration test suite and follows strict PEP 8 / Flake8 linting:
+
+```bash
+# Run unit test suite
+python -m tests
+
+# Run code style linter
+flake8 src/ tests/
+```
+
+### Quickstart Example
+
+```python
+from irp import (
+    PowerGrid, Bus, Branch,
+    NuclearPlant, PeakerPlant, BESS, LDES, SolarPV, ElectricLoad,
+    DCPowerFlow, CapacityExpansionModel, SecurityConstrainedDispatch
+)
+
+# 1. Initialize Power Grid Topology
+grid = PowerGrid("RegionalGrid", base_mva=100.0)
+bus1 = Bus("Substation_North", is_slack=True)
+bus2 = Bus("Substation_South")
+grid.add_bus(bus1)
+grid.add_bus(bus2)
+
+# Transmission corridor with reactance X=0.05 p.u. and 500 MW rating
+grid.add_branch(Branch("Corridor_1", "Substation_North", "Substation_South", x_pu=0.05, rating_mw=500.0))
+
+# 2. Add Candidate Generation & Storage Resources
+grid.add_generator(SolarPV(
+    resource_id="Solar_Farm", name="Mojave Solar", bus_id="Substation_North",
+    capital_cost_per_mw=1.0e6, fixed_om_per_mw_yr=15000.0, is_candidate=True,
+    capacity_factor_profile=[0.0, 0.1, 0.7, 0.9, 0.4, 0.0]
+))
+grid.add_generator(PeakerPlant(
+    resource_id="Aero_Peaker", name="Fast Peaker", bus_id="Substation_South",
+    capital_cost_per_mw=0.9e6, is_candidate=True
+))
+grid.add_storage(BESS(
+    resource_id="Battery_4h", name="Grid Lithium BESS", bus_id="Substation_North",
+    capital_cost_per_mw=1.2e6, is_candidate=True
+))
+grid.add_storage(LDES(
+    resource_id="IronAir_100h", name="Long Duration Storage", bus_id="Substation_North",
+    power_rating_mw=50.0, energy_capacity_mwh=5000.0
+))
+
+# 3. Add Demand Profile
+grid.add_load(ElectricLoad("Metro_Load", bus_id="Substation_South", base_mw=250.0))
+
+# 4. Run Long-Term Capacity Expansion Optimization (HiGHS Solver)
+cem = CapacityExpansionModel(grid=grid, num_hours=6, planning_reserve_margin=0.15)
+plan = cem.build_and_solve()
+print("Total Plan Cost ($):", plan.total_cost_usd)
+print("Optimal Built Capacity (MW):", plan.built_capacity_mw)
+
+# 5. Run Security-Constrained Economic Dispatch (SCED) with DC Power Flow Physics
+sced = SecurityConstrainedDispatch(grid=grid)
+dispatch_result = sced.dispatch_hour(hour=2)
+print("Line Flows (MW):", dispatch_result.branch_flows_mw)
+print("Locational Marginal Prices ($/MWh):", dispatch_result.locational_marginal_prices)
+```
 
 ---
 
@@ -587,50 +682,76 @@ The **`irp`** repository is designed to fill a crucial gap: providing an accessi
 
 ```
 irp/
-├── core/
-│   ├── config.py             # Global run configurations & time-horizon settings
-│   ├── datamodel.py          # Strict Pydantic schemas for generators, storage, demand
-│   └── units.py              # Dimensional analysis & unit conversions (MW, MWh, MMBtu)
+├── .github/
+│   └── workflows/
+│       ├── test.yml          # GitHub Actions CI for unit tests (Python 3.10, 3.11, 3.12) & Flake8
+│       ├── docker.yml        # Automated Docker image build and push to GHCR on main/develop
+│       └── publish.yml       # Release deployment workflow for published tags
 │
-├── data/
-│   ├── loader.py             # Ingestion pipelines (CSV, Parquet, NetCDF weather)
-│   ├── profiles.py           # Hourly 8760 solar, wind, and demand shape normalizers
-│   └── atb_client.py         # Automated NREL ATB technology cost downloader
+├── Dockerfile                # Production Docker container image setup
+├── requirements.txt          # Production dependencies (numpy, scipy, pandas, matplotlib)
+├── setup.cfg                 # Package metadata and Flake8 linter configuration
+├── setup.py                  # Setuptools distribution build script
+├── pyproject.toml            # PEP 517/518 build-system specification
 │
-├── expansion/
-│   ├── model.py              # Core Capacity Expansion Optimization Formulation (MILP/LP)
-│   ├── constraints/
-│   │   ├── balance.py        # Hourly energy balance & transmission transfer limits
-│   │   ├── reserves.py       # Planning reserve margin (PRM) & operating reserves
-│   │   ├── storage.py        # State of charge, round-trip efficiency, degradation
-│   │   └── policy.py         # RPS mandates, emissions caps, 24/7 matching constraints
-│   └── clustering.py         # Time-series aggregation (k-means representative weeks)
+├── src/irp/
+│   ├── core/
+│   │   ├── network.py        # Bus, Branch, and PowerGrid network topology container
+│   │   ├── units.py          # Dimensional conversions (MW, MWh, MMBtu, Z_base, per-unit)
+│   │   └── exceptions.py     # PhysicsViolationError, InfeasibleModelError, TopologyError
+│   │
+│   ├── physics/
+│   │   ├── power_flow.py     # DC Power Flow solver and PTDF distribution factor matrix
+│   │   └── transmission.py   # Conductor thermal limits, IEEE 738 temperature de-rating, losses
+│   │
+│   ├── resources/
+│   │   ├── base.py           # BaseResource, DispatchableGenerator, StorageResource
+│   │   ├── storage/
+│   │   │   ├── bess.py       # Short-duration BESS (2h, 4h, 8h) with degradation wear mechanics
+│   │   │   └── ldes.py       # Long-Duration Energy Storage (LDES 24h-100h+ Iron-air, flow, PSH)
+│   │   ├── generation/
+│   │   │   ├── nuclear.py    # Baseload nuclear physics, SMRs, ramping limits, zero CO2
+│   │   │   ├── thermal.py    # Peaker plants (SCGT / aeroderivative) and CCGT with CCS & H2
+│   │   │   └── renewable.py  # Solar PV and Wind turbine capacity factor profiles
+│   │   └── demand/
+│   │       └── load.py       # Inflexible electric load profiles and Demand Response (DR)
+│   │
+│   ├── expansion/
+│   │   ├── model.py          # Multi-period Capacity Expansion Model (CEM) optimization
+│   │   └── solver.py         # Solver abstraction interface using SciPy HiGHS engine
+│   │
+│   ├── dispatch/
+│   │   └── economic_dispatch.py # Security-Constrained Economic Dispatch (SCED) & LMP calculation
+│   │
+│   └── analytics/
+│       ├── economics.py      # Capital Recovery Factor, NPVRR, LCOE, and LCOS
+│       └── adequacy.py       # Planning Reserve Margin (PRM), LOLH, and marginal ELCC
 │
-├── dispatch/
-│   ├── pcm.py                # Chronological 8760-hour Security-Constrained Economic Dispatch
-│   └── unit_commitment.py   # SCUC formulation with min up/down times & start costs
-│
-├── adequacy/
-│   ├── elcc.py               # Iterative Effective Load Carrying Capability calculator
-│   └── lole.py               # Monte Carlo loss-of-load & unserved energy evaluation
-│
-├── analytics/
-│   ├── economics.py          # NPVRR calculation, LCOE/LCOS breakdowns, ratepayer bill impact
-│   ├── emissions.py          # Scope 1 emissions, avoided carbon abatement costs
-│   └── plots.py              # Interactive visualization suite (Duck curve, dispatch stacks)
-│
-└── tests/                    # Unit, integration, and mathematical benchmark test suites
+└── tests/                    # Comprehensive unit and integration test suite
+    ├── __init__.py           # Test runner bootstrap and path setup
+    ├── __main__.py           # python -m tests CLI entrypoint
+    ├── test_units.py         # Unit tests for physical conversions
+    ├── test_network.py       # Topology and admittance matrix tests
+    ├── test_physics.py       # DC power flow and PTDF tests
+    ├── test_transmission.py  # Conductor thermal rating and loss tests
+    ├── test_storage.py       # BESS degradation and LDES duration tests
+    ├── test_generators.py    # Nuclear, thermal peaker, and renewable tests
+    ├── test_demand.py        # Electric load and demand response tests
+    ├── test_expansion.py     # End-to-end capacity expansion optimization tests
+    ├── test_dispatch.py      # Security-constrained economic dispatch tests
+    └── test_analytics.py     # NPVRR, LCOE, LCOS, and ELCC analytics tests
 ```
 
 ### Development Roadmap
 
 - [x] **Phase 0: Conceptualization & Primer**: Comprehensive domain primer, mathematical formulation, and architecture roadmap.
-- [ ] **Phase 1: Minimal Viable Planner (MVP)**: Single-zone linear capacity expansion model with representative days, solar, wind, gas, battery storage, and HiGHS solver integration.
-- [ ] **Phase 2: Multi-Duration Storage & Degradation**: Techno-economic battery state-of-charge tracking, variable duration sizing (2h to 100h), and replacement cost mechanics.
-- [ ] **Phase 3: Multi-Zone Network Flow**: Zonal interties, transmission expansion options, and import/export contract constraints.
-- [ ] **Phase 4: Chronological Dispatch & ELCC Loop**: Automated iteration between long-term capacity expansion and chronological 8,760-hour dispatch to update marginal capacity credits dynamically.
-- [ ] **Phase 5: Policy & Clean Energy Standards**: RPS constraints, carbon tax/shadow pricing, and hourly 24/7 carbon-free energy matching.
-- [ ] **Phase 6: Reporting & Visualization Suite**: Automated dashboard generation producing interactive capacity buildouts, dispatch waterfalls, and regulatory scorecard summaries.
+- [x] **Phase 1: Minimal Viable Planner (MVP)**: Multi-zone linear capacity expansion model with solar, wind, peaker, nuclear, and battery storage using SciPy HiGHS.
+- [x] **Phase 2: Multi-Duration Storage & Degradation**: Short-duration BESS with cyclic wear degradation, and Long-Duration Energy Storage (LDES: 24h-100h) with independent power and energy sizing.
+- [x] **Phase 3: Power Flow Physics & Transmission Modeling**: DC power flow formulation, line susceptance $B$-matrix, Kirchhoff's laws, thermal ratings with temperature de-rating, and PTDF calculation.
+- [x] **Phase 4: Security-Constrained Economic Dispatch**: SCED engine resolving hourly dispatch under transmission congestion and calculating Locational Marginal Prices (LMP).
+- [x] **Phase 5: Automated Testing & CI/CD**: Full test suite (`python -m tests`), Flake8 code linting, Docker build setup, and GitHub Actions workflows matching `orbi`.
+- [ ] **Phase 6: Multi-Year Dynamic Expansion & ELCC Loop**: Iterative automated loop between multi-decadal capacity expansion and 8,760-hour chronological dispatch to recompute marginal capacity credits.
+- [ ] **Phase 7: Reporting & Visualization Suite**: Automated dashboard generation producing interactive capacity buildouts, dispatch stacks, and regulatory scorecard summaries.
 
 ---
 
